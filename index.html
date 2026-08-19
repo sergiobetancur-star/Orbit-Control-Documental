@@ -1230,6 +1230,21 @@ function gdField(f,v){
   const id='gd_'+f.k;
   if(f.type==='usuarios'){const sel=v||[];
     return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label><div class="gd-users" id="${id}" style="max-height:210px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${db.config.usuarios.map(u=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 2px"><input type="checkbox" value="${u.id}" ${sel.includes(u.id)?'checked':''}> ${esc(u.nombre)}${u.cargo?' \u00b7 '+esc(u.cargo):''}</label>`).join('')||'<span style="color:var(--muted-2);font-size:12px">No hay usuarios. Créalos primero en Usuarios.</span>'}</div></div>`;}
+  if(f.type==='participantes'){
+    const sel=(v||[]).map(p=>typeof p==='string'?{id:p,rol:'principal'}:{id:p.id,rol:p.rol||'principal'});
+    const inc=uid=>sel.find(x=>x.id===uid);
+    return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label>
+      <div class="gd-users" id="${id}" style="max-height:250px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:2px 8px">
+      ${db.config.usuarios.map(u=>{const p=inc(u.id);return `<div class="gd-prow" data-uid="${u.id}" style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid #f0f3f7">
+        <input type="checkbox" class="gd-pchk" value="${u.id}" ${p?'checked':''} style="width:16px;height:16px;margin:0;flex:0 0 auto">
+        <span style="flex:1 1 auto;min-width:0;font-size:13px">${esc(u.nombre)}${u.cargo?'<span style="color:var(--muted-2)"> · '+esc(u.cargo)+'</span>':''}</span>
+        <select class="gd-prol" style="flex:0 0 auto;font-size:12px;padding:4px 6px;width:108px">
+          <option value="principal" ${(!p||p.rol==='principal')?'selected':''}>Principal</option>
+          <option value="suplente" ${p&&p.rol==='suplente'?'selected':''}>Suplente</option>
+          <option value="invitado" ${p&&p.rol==='invitado'?'selected':''}>Invitado</option>
+        </select></div>`;}).join('')||'<span style="color:var(--muted-2);font-size:12px">No hay usuarios. Créalos primero en Usuarios.</span>'}
+      </div></div>`;
+  }
   if(f.type==='date')
     return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label><input type="date" id="${id}" value="${esc(v||'')}"></div>`;
   if(f.type==='select')
@@ -1242,7 +1257,7 @@ function gdField(f,v){
     return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label><textarea id="${id}" style="min-height:90px">${esc(v||'')}</textarea>
       <button type="button" class="btn sm" style="margin-top:6px" onclick="gdSugerirProcedimiento()">\u2728 Sugerir seg\u00fan disposici\u00f3n final</button></div>`;
   if(f.type==='num')
-    return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label><input type="number" min="0" id="${id}" value="${esc(v||'')}"></div>`;
+    return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label><input type="number" min="0" id="${id}" value="${esc((v===0||v)?v:'')}"></div>`;
   if(f.type==='disp'){v=v||{};
     return `<div class="field" style="margin-bottom:14px"><label>${esc(f.h)}</label><div class="gd-disp">
       <label><input type="checkbox" id="${id}_ct" ${v.ct?'checked':''}> CT \u00b7 Conservaci\u00f3n total</label>
@@ -1256,6 +1271,7 @@ function gdGuardar(){
   gdCtx.fields.forEach(f=>{const id='gd_'+f.k;
     if(f.type==='disp')d[f.k]={ct:document.getElementById(id+'_ct').checked,e:document.getElementById(id+'_e').checked,m:document.getElementById(id+'_m').checked,s:document.getElementById(id+'_s').checked};
     else if(f.type==='usuarios')d[f.k]=Array.from(document.querySelectorAll('#'+id+' input:checked')).map(x=>x.value);
+    else if(f.type==='participantes')d[f.k]=Array.from(document.querySelectorAll('#'+id+' .gd-prow')).filter(r=>r.querySelector('.gd-pchk').checked).map(r=>({id:r.querySelector('.gd-pchk').value,rol:r.querySelector('.gd-prol').value}));
     else if(f.type==='lines')d[f.k]=val(id).split('\n').map(x=>x.trim()).filter(Boolean);
     else d[f.k]=val(id);});
   gdSaveCb(d);
@@ -2891,10 +2907,17 @@ function reiniciarContadorCorreos(){
     (d)=>{
       const n=Math.max(0,parseInt(d.inicio,10)||0);
       const lim=Math.max(1,parseInt(d.limite,10)||200);
-      try{window.FB.setDoc(window.FB.doc(window.FB.fdb,'meta','mailstats'),{count:n,limite:lim,desde:new Date().toISOString().slice(0,10)},{merge:true});}catch(e){}
+      const fb=window.FB;
+      if(!fb||!fb.setDoc){toast('Sin conexión');return;}
+      Promise.resolve(fb.setDoc(fb.doc(fb.fdb,'meta','mailstats'),{count:n,limite:lim,desde:new Date().toISOString().slice(0,10)},{merge:true}))
+        .then(()=>{
+          mailStats={count:n,limite:lim,desde:new Date().toISOString().slice(0,10)}; // reflejo inmediato
+          renderMailStats();
+          logEvent&&logEvent('Reinició contador de correos','inicio='+n+' · límite='+lim);
+          toast('Contador actualizado');
+        })
+        .catch(e=>{console.error('reset contador',e);toast('No se pudo actualizar el contador. Revisa las reglas de Firestore para «meta».');});
       closeOverlay('overlayGD');
-      logEvent&&logEvent('Reinició contador de correos','inicio='+n+' · límite='+lim);
-      toast('Contador actualizado');
     });
 }
 function importJSON(ev){
@@ -2931,6 +2954,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverlay('overl
 let actaCtx=null;
 function comiteById(id){return (db.config.comites||[]).find(c=>c.id===id);}
 function comiteNombre(id){const c=comiteById(id);return c?c.nombre:'';}
+function rolLabel(r){return ({principal:'Principal',suplente:'Suplente',invitado:'Invitado'})[r]||'Principal';}
+function comiteParticipantes(c){return ((c&&c.participantes)||[]).map(p=>typeof p==='string'?{id:p,rol:'principal'}:{id:p.id,rol:p.rol||'principal'});}
 
 /* ---- Comités (Datos maestros) ---- */
 function renderComites(){
@@ -2943,7 +2968,7 @@ function renderComites(){
         <span style="display:flex;gap:4px"><button class="ed" title="Editar" onclick="editComite('${c.id}')">✎</button><button title="Eliminar" onclick="delComite('${c.id}')">✕</button></span>
       </div>`).join(''):'<div style="color:var(--muted-2);font-size:12.5px">Sin comités. Crea el primero.</div>'}`;
 }
-function comiteFields(){return [{k:'nombre',h:'Nombre del comité',type:'text'},{k:'participantes',h:'Participantes',type:'usuarios'}];}
+function comiteFields(){return [{k:'nombre',h:'Nombre del comité',type:'text'},{k:'participantes',h:'Participantes y rol',type:'participantes'}];}
 function nuevoComite(){gdModal('Nuevo comité','Selecciona los participantes',comiteFields(),{id:uid(),nombre:'',participantes:[]},guardarComite);}
 function editComite(id){const c=comiteById(id);gdModal('Editar comité','',comiteFields(),JSON.parse(JSON.stringify(c)),guardarComite,()=>delComite(id));}
 function guardarComite(d){if(!d.nombre){toast('El nombre del comité es obligatorio');return;}db.config.comites=db.config.comites||[];const a=db.config.comites;const i=a.findIndex(x=>x.id===d.id);i>=0?a[i]=d:a.push(d);save();closeOverlay('overlayGD');renderComites();fillActasComiteFiltro&&fillActasComiteFiltro();toast('Comité guardado');}
@@ -3050,7 +3075,7 @@ function onActaComiteChange(){
   if(!actaCtx.id){
     const c=comiteById(d.comiteId);
     d.asistentes=[];
-    if(c)(c.participantes||[]).forEach(up=>{const u=getUser(up);if(u)d.asistentes.push({id:uid(),nombre:u.nombre,cargo:u.cargo||'',userId:up,firma:null});});
+    if(c)comiteParticipantes(c).forEach(p=>{const u=getUser(p.id);if(u)d.asistentes.push({id:uid(),nombre:u.nombre,cargo:u.cargo||'',userId:p.id,rol:p.rol,firma:null});});
     d.tareas=tareasPendientesDeComite(d.comiteId);
   }
   document.getElementById('actaBody').innerHTML=actaHTML(d);
@@ -3061,15 +3086,17 @@ function onActaComiteChange(){
 function asistentesHTML(a){
   const asis=a.asistentes||[];
   if(!asis.length)return '<div style="color:var(--muted-2);font-size:12.5px">Sin asistentes. Usa «Traer participantes del comité» o «Agregar asistente».</div>';
-  return `<table><thead><tr><th>Asistente</th><th style="width:150px">Cargo</th><th style="min-width:150px">Observaciones</th><th style="width:170px">Firma de aprobación</th><th style="width:140px"></th></tr></thead><tbody>${asis.map((x,i)=>{
+  return `<table><thead><tr><th>Asistente</th><th style="width:140px">Cargo</th><th style="width:120px">Rol</th><th style="min-width:140px">Observaciones</th><th style="width:160px">Firma de aprobación</th><th style="width:130px"></th></tr></thead><tbody>${asis.map((x,i)=>{
     const firmado=x.firma&&x.firma.fecha;
     const nombreCell = x.userId
       ? esc(x.nombre||'')
       : `<select id="asis_user_${i}" onchange="onAsisUserChange(${i})" style="width:100%;margin-bottom:4px"><option value="">— manual —</option>${db.config.usuarios.map(u=>`<option value="${u.id}" ${x.userId===u.id?'selected':''}>${esc(u.nombre)}</option>`).join('')}</select><input id="asis_nom_${i}" value="${esc(x.nombre||'')}" placeholder="Nombre">`;
     const cargoCell = x.userId ? esc(x.cargo||'') : `<input id="asis_cargo_${i}" value="${esc(x.cargo||'')}" placeholder="Cargo">`;
+    const rol=x.rol||'invitado';
     return `<tr>
       <td>${nombreCell}${x.userId?'':' <span style="color:var(--muted-2);font-size:10px">(manual)</span>'}</td>
       <td>${cargoCell}</td>
+      <td><select id="asis_rol_${i}" style="width:100%"><option value="principal" ${rol==='principal'?'selected':''}>Principal</option><option value="suplente" ${rol==='suplente'?'selected':''}>Suplente</option><option value="invitado" ${rol==='invitado'?'selected':''}>Invitado</option></select></td>
       <td><input id="asis_obs_${i}" value="${esc(x.observaciones||'')}" placeholder="Observaciones (opcional)"></td>
       <td>${firmado?`${x.firma.firmaImg?`<img src="${x.firma.firmaImg}" style="max-height:32px;background:#fff;display:block;margin-bottom:2px">`:''}<span style="color:#0a7d4d;font-size:11.5px">✓ ${esc(x.firma.fecha)} ${esc(x.firma.hora||'')}</span>`:'<span class="pub-no" style="font-size:11.5px">Pendiente</span>'}</td>
       <td style="text-align:right">
@@ -3083,6 +3110,8 @@ function syncAsisFromDOM(){
   asis.forEach((x,i)=>{
     const obs=document.getElementById('asis_obs_'+i);
     if(obs)x.observaciones=obs.value;
+    const rl=document.getElementById('asis_rol_'+i);
+    if(rl)x.rol=rl.value;
     const us=document.getElementById('asis_user_'+i);
     if(us){
       if(us.value){const u=getUser(us.value);x.userId=us.value;x.nombre=u?u.nombre:'';x.cargo=u?(u.cargo||''):'';}
@@ -3099,10 +3128,10 @@ function cargarParticipantesComite(){
   if(!c){toast('Selecciona un comité primero');return;}
   const asis=actaCtx.draft.asistentes;
   let n=0;
-  (c.participantes||[]).forEach(up=>{const u=getUser(up);if(!u)return;if(asis.some(x=>x.userId===up))return;asis.push({id:uid(),nombre:u.nombre,cargo:u.cargo||'',userId:up,firma:null});n++;});
+  comiteParticipantes(c).forEach(p=>{const u=getUser(p.id);if(!u)return;if(asis.some(x=>x.userId===p.id))return;asis.push({id:uid(),nombre:u.nombre,cargo:u.cargo||'',userId:p.id,rol:p.rol,firma:null});n++;});
   refreshAsis();toast(n?`${n} participante(s) agregado(s)`:'Ya estaban todos los participantes');
 }
-function agregarAsistenteManual(){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();actaCtx.draft.asistentes.push({id:uid(),nombre:'',cargo:'',userId:'',firma:null});refreshAsis();}
+function agregarAsistenteManual(){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();actaCtx.draft.asistentes.push({id:uid(),nombre:'',cargo:'',userId:'',rol:'invitado',firma:null});refreshAsis();}
 function quitarAsistente(i){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();actaCtx.draft.asistentes.splice(i,1);refreshAsis();}
 function firmarAsistente(i){
   syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
@@ -3277,7 +3306,7 @@ function construirPDFActa(JsPDF,a){
     const firm=(x.firma&&x.firma.fecha)?`Aprob\u00f3: ${x.firma.fecha} ${x.firma.hora||''}`:'Aprobaci\u00f3n: pendiente';
     ensure(14);
     doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(27,37,51);
-    doc.text(doc.splitTextToSize(`${x.nombre||'(sin nombre)'}${x.cargo?' · '+x.cargo:''}`,CW),M,y+3);y+=5;
+    doc.text(doc.splitTextToSize(`${x.nombre||'(sin nombre)'}${x.cargo?' · '+x.cargo:''}${x.rol?' · '+rolLabel(x.rol):''}`,CW),M,y+3);y+=5;
     doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(100,112,130);
     doc.text(firm,M,y+2);y+=4;
     if(x.firma&&x.firma.firmaImg){
