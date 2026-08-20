@@ -679,6 +679,7 @@
       <div id="actaFootLeft"></div>
       <div style="display:flex;gap:8px">
         <button class="btn" onclick="exportarActaPDF()">⬇ PDF</button>
+        <button class="btn" onclick="exportarActaWord()">⬇ Word</button>
         <button class="btn" onclick="closeOverlay('overlayActa')">Cancelar</button>
         <button class="btn primary" onclick="guardarActa()">Guardar</button>
       </div>
@@ -3264,6 +3265,59 @@ Sistema de Gestión de Calidad · Gilmedica S.A.S.`;
   document.getElementById('overlayMail').classList.add('open');
 }
 
+/* ---- Exportar acta a Word (.doc HTML, compatible con Word y Google Docs) ---- */
+function exportarActaWord(){
+  if(!actaCtx){toast('Abre un acta primero');return;}
+  syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
+  const a=actaCtx.draft, E=s=>esc(s==null?'':s);
+  const estado=a.estado||actaEstadoCalc(a);
+  const estadoTxt=estado==='aprobada'?'APROBADA':'POR APROBAR';
+  const estadoBg=estado==='aprobada'?'#e3f6ec':'#fff6e0', estadoCol=estado==='aprobada'?'#0a7d4d':'#9a6700';
+  const asisRows=(a.asistentes||[]).map(x=>{
+    const firm=(x.firma&&x.firma.fecha)
+      ?`${x.firma.firmaImg?`<img src="${x.firma.firmaImg}" style="height:36px"><br>`:''}<span style="color:#0a7d4d">&#10003; ${E(x.firma.fecha)} ${E(x.firma.hora||'')}</span>`
+      :'<span style="color:#9a6700">Pendiente</span>';
+    return `<tr><td>${E(x.nombre)}</td><td>${E(x.cargo)}</td><td>${E(rolLabel(x.rol))}</td><td>${firm}</td><td>${E(x.observaciones)}</td></tr>`;
+  }).join('')||'<tr><td colspan="5" style="color:#888">Sin asistentes</td></tr>';
+  const tareaRows=(a.tareas||[]).map(t=>{
+    const cerr=t.estado==='cerrada', venc=!cerr&&t.fechaVencimiento&&t.fechaVencimiento<todayISO();
+    const bg=cerr?'#e3f6ec':(venc?'#fdeceb':'#fff6e0'), col=cerr?'#0a7d4d':(venc?'#b3261e':'#9a6700'), lbl=cerr?'Cerrada':(venc?'Vencida':'Pendiente');
+    return `<tr><td>${E(t.tarea)}</td><td>${E(t.responsable)}</td><td>${E(t.fechaVencimiento||'—')}</td><td><span style="background:${bg};color:${col};padding:2pt 8pt">${lbl}</span></td><td>${E(t.observaciones)}</td></tr>`;
+  }).join('')||'<tr><td colspan="5" style="color:#888">Sin tareas</td></tr>';
+  const html=`<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'>
+  <style>
+    body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1b2533}
+    .brand{color:#002e6d;font-weight:bold;font-size:16pt}
+    .sub{color:#647082;font-size:9pt}
+    h1{color:#1b2533;font-size:15pt;margin:8pt 0}
+    h2{color:#13335c;font-size:10pt;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #dddddd;padding-bottom:3px;margin:16pt 0 6pt}
+    table{border-collapse:collapse;width:100%;margin:4pt 0}
+    td,th{border:1px solid #cdd5e0;padding:5pt 7pt;font-size:10pt;vertical-align:top;text-align:left}
+    th{background:#eef3f9;color:#13335c}
+    .lbl{color:#6a7280;font-size:8pt;text-transform:uppercase}
+    .badge{background:${estadoBg};color:${estadoCol};padding:3pt 12pt;font-weight:bold;font-size:9pt}
+  </style></head><body>
+    <table style="border:none"><tr>
+      <td style="border:none"><span class="brand">Gilmedica S.A.S.</span><br><span class="sub">Acta de reunión · SGC ISO 9001</span></td>
+      <td style="border:none;text-align:right"><span class="badge">${estadoTxt}</span></td>
+    </tr></table>
+    <h1>Acta ${E(a.numero||'(sin número)')} · ${E(comiteNombre(a.comiteId))}</h1>
+    <h2>Datos del acta</h2>
+    <table>
+      <tr><td><span class="lbl">Fecha de reunión</span><br>${E(a.fechaReunion||'—')}</td><td><span class="lbl">Horario</span><br>${E((a.horaInicio||'—')+(a.horaFin?' a '+a.horaFin:''))}</td><td><span class="lbl">Lugar</span><br>${E(a.lugar||'—')}</td></tr>
+      <tr><td colspan="3"><span class="lbl">Objetivo o tema principal tratado</span><br>${E(a.objetivo||'—')}</td></tr>
+      ${a.link?`<tr><td colspan="3"><span class="lbl">Link del acta</span><br>${E(a.link)}</td></tr>`:''}
+    </table>
+    <h2>Asistentes y aprobación</h2>
+    <table><tr><th>Asistente</th><th>Cargo</th><th>Rol</th><th>Aprobación</th><th>Observaciones</th></tr>${asisRows}</table>
+    <h2>Tareas / compromisos</h2>
+    <table><tr><th>Tarea</th><th>Responsable</th><th>Vence</th><th>Estado</th><th>Observaciones</th></tr>${tareaRows}</table>
+    <p class="sub" style="margin-top:18pt">Generado por ORBIT · Gestión Documental · ${fechaHoy?fechaHoy():''}</p>
+  </body></html>`;
+  descargarBlob(new Blob(['\ufeff'+html],{type:'application/msword'}),'Acta_'+String(a.numero||'sin_numero').replace(/[^\w.-]+/g,'_')+'.doc');
+  toast('Acta exportada a Word');
+  logEvent&&logEvent('Exportó acta a Word','Acta '+(a.numero||''));
+}
 /* ---- Exportar acta a PDF ---- */
 function exportarActaPDF(){
   if(!actaCtx){toast('Abre un acta primero');return;}
