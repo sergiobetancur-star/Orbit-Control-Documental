@@ -3265,7 +3265,7 @@ Sistema de Gestión de Calidad · Gilmedica S.A.S.`;
   document.getElementById('overlayMail').classList.add('open');
 }
 
-/* ---- Exportar acta a Word (.doc HTML, compatible con Word y Google Docs) ---- */
+/* ---- Exportar acta a Word (.doc MHTML, incrusta firmas como partes MIME) ---- */
 function exportarActaWord(){
   if(!actaCtx){toast('Abre un acta primero');return;}
   syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
@@ -3273,18 +3273,30 @@ function exportarActaWord(){
   const estado=a.estado||actaEstadoCalc(a);
   const estadoTxt=estado==='aprobada'?'APROBADA':'POR APROBAR';
   const estadoBg=estado==='aprobada'?'#e3f6ec':'#fff6e0', estadoCol=estado==='aprobada'?'#0a7d4d':'#9a6700';
+  const imgs=[]; // partes de imagen para el MHTML
+  function imgRef(dataUri){
+    const mm=/^data:([^;]+);base64,(.*)$/.exec(dataUri||'');
+    if(!mm)return '';
+    const mime=mm[1], b64=mm[2];
+    const ext=/png/i.test(mime)?'png':(/jpe?g/i.test(mime)?'jpg':'png');
+    const name='firma'+imgs.length+'.'+ext;
+    imgs.push({name,mime,b64});
+    return name;
+  }
   const asisRows=(a.asistentes||[]).map(x=>{
-    const firm=(x.firma&&x.firma.fecha)
-      ?`${x.firma.firmaImg?`<img src="${x.firma.firmaImg}" style="height:36px"><br>`:''}<span style="color:#0a7d4d">&#10003; ${E(x.firma.fecha)} ${E(x.firma.hora||'')}</span>`
-      :'<span style="color:#9a6700">Pendiente</span>';
-    return `<tr><td>${E(x.nombre)}</td><td>${E(x.cargo)}</td><td>${E(rolLabel(x.rol))}</td><td>${firm}</td><td>${E(x.observaciones)}</td></tr>`;
+    let firmaHtml;
+    if(x.firma&&x.firma.fecha){
+      const nm=x.firma.firmaImg?imgRef(x.firma.firmaImg):'';
+      firmaHtml=(nm?`<img src="${nm}" style="height:36px"><br>`:'')+`<span style="color:#0a7d4d">&#10003; ${E(x.firma.fecha)} ${E(x.firma.hora||'')}</span>`;
+    }else firmaHtml='<span style="color:#9a6700">Pendiente</span>';
+    return `<tr><td>${E(x.nombre)}</td><td>${E(x.cargo)}</td><td>${E(rolLabel(x.rol))}</td><td>${firmaHtml}</td><td>${E(x.observaciones)}</td></tr>`;
   }).join('')||'<tr><td colspan="5" style="color:#888">Sin asistentes</td></tr>';
   const tareaRows=(a.tareas||[]).map(t=>{
     const cerr=t.estado==='cerrada', venc=!cerr&&t.fechaVencimiento&&t.fechaVencimiento<todayISO();
     const bg=cerr?'#e3f6ec':(venc?'#fdeceb':'#fff6e0'), col=cerr?'#0a7d4d':(venc?'#b3261e':'#9a6700'), lbl=cerr?'Cerrada':(venc?'Vencida':'Pendiente');
     return `<tr><td>${E(t.tarea)}</td><td>${E(t.responsable)}</td><td>${E(t.fechaVencimiento||'—')}</td><td><span style="background:${bg};color:${col};padding:2pt 8pt">${lbl}</span></td><td>${E(t.observaciones)}</td></tr>`;
   }).join('')||'<tr><td colspan="5" style="color:#888">Sin tareas</td></tr>';
-  const html=`<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'>
+  const html=`<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <style>
     body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1b2533}
     .brand{color:#002e6d;font-weight:bold;font-size:16pt}
@@ -3314,7 +3326,15 @@ function exportarActaWord(){
     <table><tr><th>Tarea</th><th>Responsable</th><th>Vence</th><th>Estado</th><th>Observaciones</th></tr>${tareaRows}</table>
     <p class="sub" style="margin-top:18pt">Generado por ORBIT · Gestión Documental · ${fechaHoy?fechaHoy():''}</p>
   </body></html>`;
-  descargarBlob(new Blob(['\ufeff'+html],{type:'application/msword'}),'Acta_'+String(a.numero||'sin_numero').replace(/[^\w.-]+/g,'_')+'.doc');
+  // Ensamblar MHTML (multipart/related): parte HTML + una parte por cada imagen de firma
+  const CRLF='\r\n', boundary='----=_ORBIT_'+Date.now();
+  let mht='MIME-Version: 1.0'+CRLF+'Content-Type: multipart/related; boundary="'+boundary+'"'+CRLF+CRLF;
+  mht+='--'+boundary+CRLF+'Content-Location: file:///C:/acta.htm'+CRLF+'Content-Type: text/html; charset="utf-8"'+CRLF+CRLF+html+CRLF+CRLF;
+  imgs.forEach(im=>{
+    mht+='--'+boundary+CRLF+'Content-Location: '+im.name+CRLF+'Content-Transfer-Encoding: base64'+CRLF+'Content-Type: '+im.mime+CRLF+CRLF+im.b64.replace(/.{76}/g,'$&'+CRLF)+CRLF+CRLF;
+  });
+  mht+='--'+boundary+'--'+CRLF;
+  descargarBlob(new Blob([mht],{type:'application/msword'}),'Acta_'+String(a.numero||'sin_numero').replace(/[^\w.-]+/g,'_')+'.doc');
   toast('Acta exportada a Word');
   logEvent&&logEvent('Exportó acta a Word','Acta '+(a.numero||''));
 }
