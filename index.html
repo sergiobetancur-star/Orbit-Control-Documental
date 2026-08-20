@@ -1730,7 +1730,7 @@ function renderApprActas(soloMias){
   tb.innerHTML=items.map(a=>{
     const miPend=currentUser&&(a.asistentes||[]).some(x=>x.userId===currentUser.id&&!(x.firma&&x.firma.fecha));
     return `<tr>
-      <td class="codecell">${esc(a.numero||'—')}</td>
+      <td class="codecell"><a href="#" onclick="abrirActa('${a.id}');return false;" title="Ver acta" style="color:var(--brand-600);font-weight:700;text-decoration:none">${esc(a.numero||'—')}</a></td>
       <td>${esc(comiteNombre(a.comiteId))||'—'}</td>
       <td>${esc(a.fechaReunion||'')}</td>
       <td>${actaEstadoBadge(a.estado||actaEstadoCalc(a))}${miPend?' <span style="color:#9a6700;font-size:11px">· falta tu firma</span>':''}</td>
