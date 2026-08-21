@@ -161,7 +161,7 @@
 
   /* ---------- Modal / Ficha ---------- */
   .overlay{position:fixed;inset:0;background:rgba(15,28,46,.45);display:none;z-index:50;align-items:flex-start;justify-content:center;overflow:auto;padding:30px 16px}
-  #overlayFecha,#overlayGD,#overlayConfirm{z-index:70}
+  #overlayFecha,#overlayGD,#overlayConfirm,#overlayImport{z-index:70}
   .overlay.open{display:flex}
   .ficha{background:var(--surface);width:100%;max-width:920px;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;animation:pop .18s ease}
   @keyframes pop{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
@@ -683,6 +683,23 @@
         <button class="btn" onclick="closeOverlay('overlayActa')">Cancelar</button>
         <button class="btn primary" onclick="guardarActa()">Guardar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== IMPORTAR TAREAS (modal) ====== -->
+<div class="overlay" id="overlayImport">
+  <div class="ficha" style="max-width:560px">
+    <div class="ficha-head">
+      <div><h2>Importar tareas</h2><div class="sub">Busca y selecciona el acta de origen. Se copiarán sus tareas no cerradas.</div></div>
+      <button class="iconbtn" onclick="closeOverlay('overlayImport')">✕</button>
+    </div>
+    <div class="ficha-body">
+      <input id="impBuscar" placeholder="Buscar por número, comité, fecha u objetivo…" oninput="filtrarActasImport()" style="width:100%;padding:9px 11px;border:1px solid var(--border-strong);border-radius:8px;margin-bottom:10px">
+      <div id="impLista" style="max-height:360px;overflow:auto"></div>
+    </div>
+    <div class="ficha-foot" style="justify-content:flex-end">
+      <button class="btn" onclick="closeOverlay('overlayImport')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -2944,11 +2961,11 @@ function importJSON(ev){
 }
 
 /* ---------- cierre con clic en overlay ---------- */
-['overlayFicha','overlayMail','overlayFecha','overlayConfirm','overlayGD','overlayActa'].forEach(idov=>{
+['overlayFicha','overlayMail','overlayFecha','overlayConfirm','overlayGD','overlayActa','overlayImport'].forEach(idov=>{
   const ov=document.getElementById(idov);
   ov.addEventListener('mousedown',e=>{if(e.target===ov)ov.classList.remove('open');});
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverlay('overlayFicha');closeOverlay('overlayMail');closeOverlay('overlayFecha');closeOverlay('overlayConfirm');closeOverlay('overlayGD');closeOverlay('overlayActa');}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverlay('overlayFicha');closeOverlay('overlayMail');closeOverlay('overlayFecha');closeOverlay('overlayConfirm');closeOverlay('overlayGD');closeOverlay('overlayActa');closeOverlay('overlayImport');}});
 
 /* ============================================================
    MÓDULO ACTAS + COMITÉS
@@ -3207,21 +3224,36 @@ function quitarTareaActa(i){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDO
 /* Las tareas son independientes por acta: ya NO se propagan cambios entre actas. */
 function importarTareasModal(){
   syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
-  const opciones=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id).map(x=>({id:x.id,nombre:`Acta ${x.numero||'?'} · ${comiteNombre(x.comiteId)}${x.fechaReunion?' · '+x.fechaReunion:''}`}));
+  const opciones=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id);
   if(!opciones.length){toast('No hay otras actas para importar');return;}
-  gdModal('Importar tareas','Selecciona el acta de origen. Se copiarán sus tareas NO cerradas como copias editables e independientes.',
-    [{k:'origen',h:'Acta de origen',type:'select',options:opciones}],
-    {origen:opciones[0].id},
-    (d)=>{
-      const src=(db.actas||[]).find(x=>x.id===d.origen);
-      if(!src){toast('Acta no encontrada');return;}
-      const abiertas=(src.tareas||[]).filter(t=>t.estado!=='cerrada');
-      if(!abiertas.length){toast('Esa acta no tiene tareas pendientes');return;}
-      abiertas.forEach(t=>{const c=JSON.parse(JSON.stringify(t));c.tid=uid();actaCtx.draft.tareas.push(c);});
-      closeOverlay('overlayGD');
-      const tb=document.querySelector('#tareasTable tbody');if(tb)tb.innerHTML=tareasRowsHTML(actaCtx.draft);
-      toast(abiertas.length+' tarea(s) importada(s)');
-    });
+  const b=document.getElementById('impBuscar');if(b)b.value='';
+  filtrarActasImport();
+  document.getElementById('overlayImport').classList.add('open');
+  setTimeout(()=>{const bb=document.getElementById('impBuscar');if(bb)bb.focus();},60);
+}
+function filtrarActasImport(){
+  const cont=document.getElementById('impLista');if(!cont)return;
+  const q=((document.getElementById('impBuscar')||{}).value||'').toLowerCase().trim();
+  let items=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id);
+  if(q)items=items.filter(x=>[x.numero,comiteNombre(x.comiteId),x.fechaReunion,x.objetivo].some(v=>(v==null?'':String(v)).toLowerCase().includes(q)));
+  items.sort((a,b)=>String(b.fechaReunion||'').localeCompare(String(a.fechaReunion||'')));
+  if(!items.length){cont.innerHTML='<div class="empty" style="padding:16px">Sin resultados.</div>';return;}
+  cont.innerHTML=items.map(x=>{
+    const abiertas=(x.tareas||[]).filter(t=>t.estado!=='cerrada').length;
+    return `<div onclick="importarDesdeActa('${x.id}')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer" onmouseover="this.style.background='var(--brand-50)'" onmouseout="this.style.background=''">
+      <div style="min-width:0"><strong>Acta ${esc(x.numero||'?')}</strong> · ${esc(comiteNombre(x.comiteId))}<div style="color:var(--muted-2);font-size:11px">${esc(x.fechaReunion||'')}${x.objetivo?' · '+esc(x.objetivo):''}</div></div>
+      <span class="badge ${abiertas?'badge-amarillo':'badge-gris'}" style="white-space:nowrap">${abiertas} sin cerrar</span>
+    </div>`;
+  }).join('');
+}
+function importarDesdeActa(id){
+  const src=(db.actas||[]).find(x=>x.id===id);if(!src){toast('Acta no encontrada');return;}
+  const abiertas=(src.tareas||[]).filter(t=>t.estado!=='cerrada');
+  if(!abiertas.length){toast('Esa acta no tiene tareas sin cerrar');return;}
+  abiertas.forEach(t=>{const c=JSON.parse(JSON.stringify(t));c.tid=uid();actaCtx.draft.tareas.push(c);});
+  closeOverlay('overlayImport');
+  const tb=document.querySelector('#tareasTable tbody');if(tb)tb.innerHTML=tareasRowsHTML(actaCtx.draft);
+  toast(abiertas.length+' tarea(s) importada(s)');
 }
 function guardarActa(){
   syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
