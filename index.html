@@ -3300,11 +3300,15 @@ function construirDocx(JSZip,a){
   function runP(text,o){o=o||{};const rpr=`<w:rPr>${o.bold?'<w:b/>':''}${o.color?`<w:color w:val="${o.color}"/>`:''}${o.size?`<w:sz w:val="${o.size*2}"/>`:''}</w:rPr>`;
     return `<w:p>${o.spacing?`<w:pPr><w:spacing w:after="${o.spacing}"/></w:pPr>`:''}<w:r>${rpr}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r></w:p>`;}
   function imgP(id,cx,cy){return `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="firma${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="firma${id}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;}
-  function cell(inner,o){o=o||{};return `<w:tc><w:tcPr><w:tcW w:w="${o.w||0}" w:type="dxa"/>${o.shd?`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`:''}</w:tcPr>${inner||'<w:p/>'}</w:tc>`;}
-  function hcell(t){return cell(runP(t,{bold:true,size:10,color:'13335C'}),{shd:'EEF3F9'});}
+  function cell(inner,o){o=o||{};return `<w:tc><w:tcPr><w:tcW w:w="${o.w||0}" w:type="dxa"/>${o.span?`<w:gridSpan w:val="${o.span}"/>`:''}${o.shd?`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`:''}</w:tcPr>${inner||'<w:p/>'}</w:tc>`;}
+  function hcell(t,w){return cell(runP(t,{bold:true,size:10,color:'13335C'}),{shd:'EEF3F9',w:w});}
   function row(cells){return `<w:tr>${cells.join('')}</w:tr>`;}
-  function tbl(rows){const b=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="CDD5E0"/>`).join('');
-    return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders>${b}</w:tblBorders></w:tblPr>${rows.join('')}</w:tbl>`+'<w:p/>';}
+  function tbl(rows,cols){const b=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="CDD5E0"/>`).join('');
+    const total=cols.reduce((s,w)=>s+w,0);
+    const grid='<w:tblGrid>'+cols.map(w=>`<w:gridCol w:w="${w}"/>`).join('')+'</w:tblGrid>';
+    return `<w:tbl><w:tblPr><w:tblW w:w="${total}" w:type="dxa"/><w:tblBorders>${b}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr>${grid}${rows.join('')}</w:tbl>`+'<w:p/>';}
+  const AW=[1900,2100,1200,2472,2300];   // columnas asistentes (suman 9972 = ancho útil)
+  const TW=[2900,1700,1300,1372,2700];   // columnas tareas
   let body='';
   body+=runP('Gilmedica S.A.S.',{bold:true,size:16,color:'002E6D'});
   body+=runP('Acta de reuni\u00f3n \u00b7 SGC ISO 9001',{size:9,color:'647082',spacing:140});
@@ -3315,23 +3319,23 @@ function construirDocx(JSZip,a){
   body+=runP('Objetivo: '+(a.objetivo||'\u2014'),{size:10});
   if(a.link)body+=runP('Link del acta: '+a.link,{size:10,color:'0075C9'});
   body+=runP('ASISTENTES Y APROBACI\u00d3N',{bold:true,size:10,color:'13335C',spacing:80});
-  const aHead=row([hcell('Asistente'),hcell('Cargo'),hcell('Rol'),hcell('Aprobaci\u00f3n'),hcell('Observaciones')]);
+  const aHead=row([hcell('Asistente',AW[0]),hcell('Cargo',AW[1]),hcell('Rol',AW[2]),hcell('Aprobaci\u00f3n',AW[3]),hcell('Observaciones',AW[4])]);
   const aRows=(a.asistentes||[]).map(x=>{
     let aprob;
     if(x.firma&&x.firma.fecha){
       const rid=x.firma.firmaImg?addImg(x.firma.firmaImg):null;
       aprob=(rid?imgP(rid,media[rid-1].cx,media[rid-1].cy):'')+runP('\u2713 '+x.firma.fecha+' '+(x.firma.hora||''),{size:9,color:'0A7D4D'});
     }else aprob=runP('Pendiente',{size:9,color:'9A6700'});
-    return row([cell(runP(x.nombre||'',{size:10})),cell(runP(x.cargo||'',{size:10})),cell(runP(rolLabel(x.rol),{size:10})),cell(aprob),cell(runP(x.observaciones||'',{size:10}))]);
+    return row([cell(runP(x.nombre||'',{size:10}),{w:AW[0]}),cell(runP(x.cargo||'',{size:10}),{w:AW[1]}),cell(runP(rolLabel(x.rol),{size:10}),{w:AW[2]}),cell(aprob,{w:AW[3]}),cell(runP(x.observaciones||'',{size:10}),{w:AW[4]})]);
   });
-  body+=tbl([aHead].concat(aRows.length?aRows:[row([cell(runP('Sin asistentes',{size:10,color:'888888'}))])]));
+  body+=tbl([aHead].concat(aRows.length?aRows:[row([cell(runP('Sin asistentes',{size:10,color:'888888'}),{span:5,w:9972})])]),AW);
   body+=runP('TAREAS / COMPROMISOS',{bold:true,size:10,color:'13335C',spacing:80});
-  const tHead=row([hcell('Tarea'),hcell('Responsable'),hcell('Vence'),hcell('Estado'),hcell('Observaciones')]);
+  const tHead=row([hcell('Tarea',TW[0]),hcell('Responsable',TW[1]),hcell('Vence',TW[2]),hcell('Estado',TW[3]),hcell('Observaciones',TW[4])]);
   const tRows=(a.tareas||[]).map(t=>{const cerr=t.estado==='cerrada',venc=!cerr&&t.fechaVencimiento&&t.fechaVencimiento<todayISO();
     const lbl=cerr?'Cerrada':(venc?'Vencida':'Pendiente'),col=cerr?'0A7D4D':(venc?'B3261E':'9A6700');
-    return row([cell(runP(t.tarea||'',{size:10})),cell(runP(t.responsable||'',{size:10})),cell(runP(t.fechaVencimiento||'\u2014',{size:10})),cell(runP(lbl,{size:10,bold:true,color:col})),cell(runP(t.observaciones||'',{size:10}))]);
+    return row([cell(runP(t.tarea||'',{size:10}),{w:TW[0]}),cell(runP(t.responsable||'',{size:10}),{w:TW[1]}),cell(runP(t.fechaVencimiento||'\u2014',{size:10}),{w:TW[2]}),cell(runP(lbl,{size:10,bold:true,color:col}),{w:TW[3]}),cell(runP(t.observaciones||'',{size:10}),{w:TW[4]})]);
   });
-  body+=tbl([tHead].concat(tRows.length?tRows:[row([cell(runP('Sin tareas',{size:10,color:'888888'}))])]));
+  body+=tbl([tHead].concat(tRows.length?tRows:[row([cell(runP('Sin tareas',{size:10,color:'888888'}),{span:5,w:9972})])]),TW);
   body+=runP('Generado por ORBIT \u00b7 Gesti\u00f3n Documental \u00b7 '+(typeof fechaHoy==='function'?fechaHoy():''),{size:8,color:'8C96A3',spacing:200});
   const documentXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'+
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'+
