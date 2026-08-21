@@ -3051,11 +3051,11 @@ function actaHTML(a){
   </fieldset>
 
   <fieldset class="section"><legend>Tareas / compromisos</legend>
-    <div class="pill-actions" style="margin-bottom:10px"><button class="btn sm" type="button" onclick="editarTareaModal(-1)">＋ Agregar tarea</button></div>
+    <div class="pill-actions" style="margin-bottom:10px"><button class="btn sm" type="button" onclick="editarTareaModal(-1)">＋ Agregar tarea</button> <button class="btn sm" type="button" onclick="importarTareasModal()">⤵ Importar tareas</button></div>
     <div style="overflow-x:auto"><table id="tareasTable"><thead><tr>
       <th>Tarea</th><th style="width:150px">Responsable</th><th style="width:140px">Vence</th><th style="width:120px">Estado</th><th>Observaciones</th><th style="width:36px"></th>
     </tr></thead><tbody>${tareasRowsHTML(a)}</tbody></table></div>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Las tareas pendientes se copian automáticamente al crear una nueva acta del comité. Al cambiar el estado u observaciones de una tarea, se actualiza en todas las actas donde aparezca.</div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Usa «Importar tareas» para copiar las tareas no cerradas de otra acta. Las tareas son copias independientes: al editarlas no se modifican en otras actas.</div>
   </fieldset>`;
 }
 
@@ -3078,7 +3078,7 @@ function onActaComiteChange(){
     const c=comiteById(d.comiteId);
     d.asistentes=[];
     if(c)comiteParticipantes(c).forEach(p=>{const u=getUser(p.id);if(u)d.asistentes.push({id:uid(),nombre:u.nombre,cargo:u.cargo||'',userId:p.id,rol:p.rol,firma:null});});
-    d.tareas=tareasPendientesDeComite(d.comiteId);
+    // Las tareas ya NO se copian automáticamente; se importan manualmente con «Importar tareas».
   }
   document.getElementById('actaBody').innerHTML=actaHTML(d);
   actualizarEstadoActaBadge();
@@ -3204,10 +3204,24 @@ function syncTareasFromDOM(){
 function agregarTareaActa(){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();actaCtx.draft.tareas.push({tid:uid(),tarea:'',responsable:'',fechaVencimiento:'',estado:'pendiente',observaciones:''});document.querySelector('#tareasTable tbody').innerHTML=tareasRowsHTML(actaCtx.draft);}
 function quitarTareaActa(i){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();actaCtx.draft.tareas.splice(i,1);document.querySelector('#tareasTable tbody').innerHTML=tareasRowsHTML(actaCtx.draft);}
 
-/* Propaga las tareas (por tid) a todas las demás actas donde aparezcan */
-function propagarTareas(acta){
-  const map={};(acta.tareas||[]).forEach(t=>{map[t.tid]=t;});
-  db.actas.forEach(a=>{if(a.id===acta.id)return;(a.tareas||[]).forEach((t,i)=>{if(map[t.tid])a.tareas[i]=JSON.parse(JSON.stringify(map[t.tid]));});});
+/* Las tareas son independientes por acta: ya NO se propagan cambios entre actas. */
+function importarTareasModal(){
+  syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
+  const opciones=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id).map(x=>({id:x.id,nombre:`Acta ${x.numero||'?'} · ${comiteNombre(x.comiteId)}${x.fechaReunion?' · '+x.fechaReunion:''}`}));
+  if(!opciones.length){toast('No hay otras actas para importar');return;}
+  gdModal('Importar tareas','Selecciona el acta de origen. Se copiarán sus tareas NO cerradas como copias editables e independientes.',
+    [{k:'origen',h:'Acta de origen',type:'select',options:opciones}],
+    {origen:opciones[0].id},
+    (d)=>{
+      const src=(db.actas||[]).find(x=>x.id===d.origen);
+      if(!src){toast('Acta no encontrada');return;}
+      const abiertas=(src.tareas||[]).filter(t=>t.estado!=='cerrada');
+      if(!abiertas.length){toast('Esa acta no tiene tareas pendientes');return;}
+      abiertas.forEach(t=>{const c=JSON.parse(JSON.stringify(t));c.tid=uid();actaCtx.draft.tareas.push(c);});
+      closeOverlay('overlayGD');
+      const tb=document.querySelector('#tareasTable tbody');if(tb)tb.innerHTML=tareasRowsHTML(actaCtx.draft);
+      toast(abiertas.length+' tarea(s) importada(s)');
+    });
 }
 function guardarActa(){
   syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
@@ -3215,7 +3229,6 @@ function guardarActa(){
   if(!d.numero){toast('Indica el número de acta');return;}
   if(!d.comiteId){toast('Selecciona el comité');return;}
   d.estado=actaEstadoCalc(d);
-  propagarTareas(d);
   const idx=db.actas.findIndex(x=>x.id===d.id);
   const esNuevo=idx<0;
   if(idx>=0)db.actas[idx]=d;else db.actas.push(d);
