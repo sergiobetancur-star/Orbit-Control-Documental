@@ -3003,14 +3003,19 @@ function fillActasComiteFiltro(){
   sel.innerHTML='<option value="">Todos los comités</option>'+(db.config.comites||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   sel.value=cur||'';
 }
+function puedeVerActa(a){
+  if(esAdmin())return true;
+  if(currentUser && a.creadorId && a.creadorId===currentUser.id)return true;   // el creador siempre tiene acceso
+  return !!(currentUser && (a.asistentes||[]).some(x=>x.userId===currentUser.id));
+}
 function renderActas(){
   fillActasComiteFiltro();
   const filtro=(document.getElementById('actasComiteFiltro')||{}).value||'';
   const tb=document.getElementById('tbodyActas');if(!tb)return;
-  let items=db.actas.slice();
+  let items=db.actas.filter(puedeVerActa);
   if(filtro)items=items.filter(a=>a.comiteId===filtro);
   items.sort((a,b)=>String(b.fechaReunion||'').localeCompare(String(a.fechaReunion||'')));
-  if(!items.length){tb.innerHTML='<tr><td colspan="6"><div class="empty"><div class="big">Sin actas</div>Crea la primera con «Nueva acta».</div></td></tr>';return;}
+  if(!items.length){tb.innerHTML='<tr><td colspan="6"><div class="empty"><div class="big">Sin actas</div>'+(esAdmin()?'Crea la primera con «Nueva acta».':'Solo verás las actas en las que participas como asistente.')+'</div></td></tr>';return;}
   tb.innerHTML=items.map(a=>`<tr class="row-link" onclick="abrirActa('${a.id}')">
     <td class="codecell">${esc(a.numero||'—')}</td>
     <td>${esc(comiteNombre(a.comiteId))||'—'}</td>
@@ -3032,6 +3037,7 @@ function tareasPendientesDeComite(comiteId){
 
 /* ---- Ficha de acta ---- */
 function abrirActa(id){
+  if(id){const found=db.actas.find(a=>a.id===id); if(found&&!puedeVerActa(found)){toast('No tienes acceso a esta acta');return;}}
   const base=id?JSON.parse(JSON.stringify(db.actas.find(a=>a.id===id))):nuevoActaObj();
   actaCtx={id,draft:base};
   document.getElementById('actaTitle').textContent=id?('Acta '+(base.numero||'')):'Nueva acta';
@@ -3224,8 +3230,8 @@ function quitarTareaActa(i){syncActaFromDOM();syncAsisFromDOM();syncTareasFromDO
 /* Las tareas son independientes por acta: ya NO se propagan cambios entre actas. */
 function importarTareasModal(){
   syncActaFromDOM();syncAsisFromDOM();syncTareasFromDOM();
-  const opciones=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id);
-  if(!opciones.length){toast('No hay otras actas para importar');return;}
+  const opciones=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id&&puedeVerActa(x));
+  if(!opciones.length){toast('No hay otras actas disponibles para importar');return;}
   const b=document.getElementById('impBuscar');if(b)b.value='';
   filtrarActasImport();
   document.getElementById('overlayImport').classList.add('open');
@@ -3234,7 +3240,7 @@ function importarTareasModal(){
 function filtrarActasImport(){
   const cont=document.getElementById('impLista');if(!cont)return;
   const q=((document.getElementById('impBuscar')||{}).value||'').toLowerCase().trim();
-  let items=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id);
+  let items=(db.actas||[]).filter(x=>x.id!==actaCtx.draft.id&&puedeVerActa(x));
   if(q)items=items.filter(x=>[x.numero,comiteNombre(x.comiteId),x.fechaReunion,x.objetivo].some(v=>(v==null?'':String(v)).toLowerCase().includes(q)));
   items.sort((a,b)=>String(b.fechaReunion||'').localeCompare(String(a.fechaReunion||'')));
   if(!items.length){cont.innerHTML='<div class="empty" style="padding:16px">Sin resultados.</div>';return;}
@@ -3263,6 +3269,7 @@ function guardarActa(){
   d.estado=actaEstadoCalc(d);
   const idx=db.actas.findIndex(x=>x.id===d.id);
   const esNuevo=idx<0;
+  if(esNuevo && currentUser && currentUser.id && !d.creadorId)d.creadorId=currentUser.id;   // el creador conserva acceso siempre
   if(idx>=0)db.actas[idx]=d;else db.actas.push(d);
   save();closeOverlay('overlayActa');
   logEvent(esNuevo?'Creó acta':'Editó acta',`Acta ${d.numero} · ${comiteNombre(d.comiteId)} · ${d.estado==='aprobada'?'Aprobada':'Por aprobar'}`);
