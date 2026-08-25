@@ -2961,11 +2961,14 @@ function importJSON(ev){
 }
 
 /* ---------- cierre con clic en overlay ---------- */
-['overlayFicha','overlayMail','overlayFecha','overlayConfirm','overlayGD','overlayActa','overlayImport'].forEach(idov=>{
+// Cierre por clic fuera / Escape SOLO para diálogos rápidos.
+// Las ventanas de edición (overlayFicha, overlayActa, overlayGD) NO se cierran así para no perder cambios;
+// se cierran únicamente con sus botones (Cancelar / ✕ / Guardar).
+['overlayMail','overlayFecha','overlayConfirm','overlayImport'].forEach(idov=>{
   const ov=document.getElementById(idov);
   ov.addEventListener('mousedown',e=>{if(e.target===ov)ov.classList.remove('open');});
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverlay('overlayFicha');closeOverlay('overlayMail');closeOverlay('overlayFecha');closeOverlay('overlayConfirm');closeOverlay('overlayGD');closeOverlay('overlayActa');closeOverlay('overlayImport');}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverlay('overlayMail');closeOverlay('overlayFecha');closeOverlay('overlayConfirm');closeOverlay('overlayImport');}});
 
 /* ============================================================
    MÓDULO ACTAS + COMITÉS
@@ -3008,6 +3011,9 @@ function puedeVerActa(a){
   if(currentUser && a.creadorId && a.creadorId===currentUser.id)return true;   // el creador siempre tiene acceso
   return !!(currentUser && (a.asistentes||[]).some(x=>x.userId===currentUser.id));
 }
+function puedeEliminarActa(a){
+  return esAdmin() || !!(currentUser && a && a.creadorId && a.creadorId===currentUser.id);
+}
 function renderActas(){
   fillActasComiteFiltro();
   const filtro=(document.getElementById('actasComiteFiltro')||{}).value||'';
@@ -3022,7 +3028,7 @@ function renderActas(){
     <td>${esc(a.fechaReunion||'')}</td>
     <td>${esc(a.objetivo||'')}</td>
     <td>${actaEstadoBadge(a.estado||actaEstadoCalc(a))}</td>
-    <td style="text-align:right" onclick="event.stopPropagation()"><button class="btn danger sm" onclick="eliminarActa('${a.id}')">Eliminar</button></td>
+    <td style="text-align:right" onclick="event.stopPropagation()">${puedeEliminarActa(a)?`<button class="btn danger sm" onclick="eliminarActa('${a.id}')">Eliminar</button>`:'<span style="color:var(--muted-2);font-size:11px">—</span>'}</td>
   </tr>`).join('');
 }
 function nuevoActaObj(){return {id:uid(),numero:'',comiteId:'',fechaReunion:'',horaInicio:'',horaFin:'',lugar:'',objetivo:'',link:'',estado:'poraprobar',asistentes:[],tareas:[]};}
@@ -3043,7 +3049,7 @@ function abrirActa(id){
   document.getElementById('actaTitle').textContent=id?('Acta '+(base.numero||'')):'Nueva acta';
   document.getElementById('actaSub').textContent=id?comiteNombre(base.comiteId):'Complete los datos del acta.';
   document.getElementById('actaEstado').innerHTML=actaEstadoBadge(base.estado||actaEstadoCalc(base));
-  document.getElementById('actaFootLeft').innerHTML=id?`<button class="btn danger" onclick="eliminarActa('${id}',true)">🗑 Eliminar</button>`:'';
+  document.getElementById('actaFootLeft').innerHTML=(id&&puedeEliminarActa(base))?`<button class="btn danger" onclick="eliminarActa('${id}',true)">🗑 Eliminar</button>`:'';
   document.getElementById('actaBody').innerHTML=actaHTML(base);
   document.getElementById('overlayActa').classList.add('open');
 }
@@ -3276,6 +3282,8 @@ function guardarActa(){
   renderActas();toast('Acta guardada');
 }
 function eliminarActa(id,desdeModal){
+  const acta=db.actas.find(x=>x.id===id);
+  if(!puedeEliminarActa(acta)){toast('Solo el administrador o quien creó el acta puede eliminarla');return;}
   pedirConfirmacion('Eliminar acta','¿Eliminar esta acta?\n\nPodrás revertirlo con «Deshacer».',()=>{
     const a=db.actas.find(x=>x.id===id);
     db.actas=db.actas.filter(x=>x.id!==id);save();
