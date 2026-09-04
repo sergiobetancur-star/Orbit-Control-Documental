@@ -97,6 +97,8 @@
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:#f8fafc}
   .group-row td{background:var(--brand-50);border-bottom:1px solid var(--border-strong);padding:9px 14px;font-weight:600;font-size:13px}
+  .tipo-row td{background:var(--brand);color:#fff;padding:8px 14px;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+  .tipo-row .grp-count{color:#fff;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35)}
   .group-row:hover td{background:var(--brand-50)}
   .group-row .codecell{font-size:13px}
   .grp-count{margin-left:8px;font-weight:600;font-size:11px;color:var(--brand);background:#fff;border:1px solid #cdd9ea;border-radius:20px;padding:2px 9px}
@@ -1700,32 +1702,39 @@ function renderLista(tipo){
     tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><div class="big">Sin ${tipo==='documento'?'documentos':'formatos'}</div>Usa el botón “Nuevo” para crear el primero.</div></td></tr>`;
     return;
   }
-  // Agrupar por código; dentro de cada grupo, versión más reciente primero
-  const groups={};
-  rows.forEach(d=>{const k=d.codigo||'(sin código)';(groups[k]=groups[k]||[]).push(d);});
-  const keys=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
+  // Agrupar por tipo de documento y, dentro, por código (versión más reciente primero)
+  const tipos={};
+  rows.forEach(d=>{const t=cfgName('tiposDocumento',d.tipoDoc)||'(Sin tipo de documento)';(tipos[t]=tipos[t]||[]).push(d);});
+  const SINTIPO='(Sin tipo de documento)';
+  const tipoKeys=Object.keys(tipos).sort((a,b)=>{if(a===SINTIPO)return 1;if(b===SINTIPO)return -1;return a.localeCompare(b,'es');});
   let html='';
-  keys.forEach(k=>{
-    const vers=groups[k].sort((a,b)=>(parseInt(b.version,10)||0)-(parseInt(a.version,10)||0));
-    const multi=vers.length>1;
-    if(multi){
-      const latest=vers[0];
-      html+=`<tr class="group-row"><td colspan="6">
-        <span class="codecell">${esc(k)}</span> · ${esc(latest.nombre||'(sin nombre)')}
-        <span class="grp-count">${vers.length} versiones</span>
-      </td></tr>`;
-    }
-    vers.forEach(d=>{
-      html+=`<tr class="row-link${multi?' ver-row':''}" onclick="abrirFicha('${tipo}','${d.id}')">
-        <td>${multi?'↳ ':''}<span class="codecell"${multi?' style="opacity:.7"':''}>${esc(d.codigo||'—')}</span></td>
-        <td>${esc(d.nombre||'(sin nombre)')}</td>
-        <td>v${esc(d.version||'1')}</td>
-        <td>${badge(d.estado)}</td>
-        <td>${d.publicado?'<span class="pub-yes">Sí</span>':'<span class="pub-no">No</span>'}</td>
-        <td style="text-align:right" onclick="event.stopPropagation()">
-          ${d.link?`<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener">Abrir ↗</a>`:'<span class="pub-no" style="font-size:12px">sin link</span>'}
-        </td>
-      </tr>`;
+  tipoKeys.forEach(tk=>{
+    html+=`<tr class="tipo-row"><td colspan="6">${esc(tk)}<span class="grp-count">${tipos[tk].length}</span></td></tr>`;
+    const groups={};
+    tipos[tk].forEach(d=>{const k=d.codigo||'(sin código)';(groups[k]=groups[k]||[]).push(d);});
+    const keys=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
+    keys.forEach(k=>{
+      const vers=groups[k].sort((a,b)=>(parseInt(b.version,10)||0)-(parseInt(a.version,10)||0));
+      const multi=vers.length>1;
+      if(multi){
+        const latest=vers[0];
+        html+=`<tr class="group-row"><td colspan="6">
+          <span class="codecell">${esc(k)}</span> · ${esc(latest.nombre||'(sin nombre)')}
+          <span class="grp-count">${vers.length} versiones</span>
+        </td></tr>`;
+      }
+      vers.forEach(d=>{
+        html+=`<tr class="row-link${multi?' ver-row':''}" onclick="abrirFicha('${tipo}','${d.id}')">
+          <td>${multi?'↳ ':''}<span class="codecell"${multi?' style="opacity:.7"':''}>${esc(d.codigo||'—')}</span></td>
+          <td>${esc(d.nombre||'(sin nombre)')}</td>
+          <td>v${esc(d.version||'1')}</td>
+          <td>${badge(d.estado)}</td>
+          <td>${d.publicado?'<span class="pub-yes">Sí</span>':'<span class="pub-no">No</span>'}</td>
+          <td style="text-align:right" onclick="event.stopPropagation()">
+            ${d.link?`<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener">Abrir ↗</a>`:'<span class="pub-no" style="font-size:12px">sin link</span>'}
+          </td>
+        </tr>`;
+      });
     });
   });
   tbody.innerHTML=html;
