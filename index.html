@@ -579,7 +579,8 @@
     <div class="ficha-foot">
       <div class="pill-actions" id="fichaActions"></div>
       <div style="display:flex;gap:8px">
-        <button class="btn" onclick="exportarFichaPDF()" title="Exportar la ficha a PDF">⤓ Exportar PDF</button>
+        <button class="btn" onclick="exportarFichaPDF()" title="Exportar la ficha a PDF">⤓ PDF</button>
+        <button class="btn" onclick="exportarFichaWord()" title="Exportar la ficha a Word">⤓ Word</button>
         <button class="btn" onclick="cerrarFicha()">Cancelar</button>
         <button class="btn primary" onclick="guardarFicha()">Guardar ficha</button>
       </div>
@@ -2246,6 +2247,119 @@ function construirPDF(JsPDF){
   const safe=(d.codigo||'ficha').replace(/[^\w.-]+/g,'_');
   doc.save(`Ficha_${safe}_v${d.version||'1'}.pdf`);
   toast('PDF descargado');
+}
+
+function exportarFichaWord(){
+  const d=readFicha();
+  toast('Generando Word\u2026');
+  loadJSZip().then(JSZip=>construirFichaDocx(JSZip,d,fichaCtx.tipo==='registro'))
+    .catch(e=>{console.error('word ficha',e);toast('No se pudo generar el Word (revisa la conexi\u00f3n).');});
+}
+function construirFichaDocx(JSZip,d,esRegistro){
+  const media=[];
+  function addImg(dataUri){
+    const mm=/^data:([^;]+);base64,(.*)$/.exec(dataUri||'');if(!mm)return null;
+    const ext=/png/i.test(mm[1])?'png':(/jpe?g/i.test(mm[1])?'jpg':'png');
+    const bytes=b64ToBytes(mm[2]);const dm=pngDims(bytes);
+    const H=40; const cy=Math.round(H*9525); const cx=Math.round(H*(dm.w/dm.h)*9525);
+    const id=media.length+1; media.push({id,ext,bytes,cx,cy}); return id;
+  }
+  function runP(text,o){o=o||{};const rpr=`<w:rPr>${o.bold?'<w:b/>':''}${o.color?`<w:color w:val="${o.color}"/>`:''}${o.size?`<w:sz w:val="${o.size*2}"/>`:''}</w:rPr>`;
+    return `<w:p>${o.spacing?`<w:pPr><w:spacing w:after="${o.spacing}"/></w:pPr>`:''}<w:r>${rpr}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r></w:p>`;}
+  function imgP(id,cx,cy){return `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="firma${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="firma${id}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;}
+  function cell(inner,o){o=o||{};return `<w:tc><w:tcPr><w:tcW w:w="${o.w||0}" w:type="dxa"/>${o.span?`<w:gridSpan w:val="${o.span}"/>`:''}${o.shd?`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`:''}</w:tcPr>${inner||'<w:p/>'}</w:tc>`;}
+  function hcell(t,w){return cell(runP(t,{bold:true,size:9,color:'13335C'}),{shd:'EEF3F9',w:w});}
+  function row(cells){return `<w:tr>${cells.join('')}</w:tr>`;}
+  function tbl(rows,cols){const b=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="CDD5E0"/>`).join('');
+    const total=cols.reduce((s,w)=>s+w,0);
+    const grid='<w:tblGrid>'+cols.map(w=>`<w:gridCol w:w="${w}"/>`).join('')+'</w:tblGrid>';
+    return `<w:tbl><w:tblPr><w:tblW w:w="${total}" w:type="dxa"/><w:tblBorders>${b}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr>${grid}${rows.join('')}</w:tbl>`+'<w:p/>';}
+  const HALF=4986, FULL=9972;
+  function lv(l,v){return runP(l,{bold:true,size:7,color:'8A94A3'})+runP((v==null||v==='')?'—':String(v),{size:10});}
+  function pairRow(l1,v1,l2,v2){return row([cell(lv(l1,v1),{w:HALF}),cell(lv(l2,v2),{w:HALF})]);}
+  function fullRow(l,v){return row([cell(lv(l,v),{w:FULL,span:2})]);}
+  function uName(id){const u=getUser(id);return u?(u.nombre+(u.cargo?' · '+u.cargo:'')):'—';}
+  function firmaCell(s,w){
+    let inner;
+    if(!s||!s.nombre)inner=runP('Pendiente',{size:9,color:'8A94A3'});
+    else{
+      inner=runP(s.nombre,{bold:true,size:9});
+      if(s.cargo)inner+=runP(s.cargo,{size:8,color:'647082'});
+      if(s.firmaImg){const rid=addImg(s.firmaImg);if(rid)inner+=imgP(rid,media[rid-1].cx,media[rid-1].cy);}
+      inner+=runP(((s.fecha||'')+' '+(s.hora||'')).trim(),{size:8,color:'647082'});
+    }
+    return cell(inner,{w:w});
+  }
+  const e=(ESTADO[d.estado]||ESTADO.elaboracion), hx=ESTADO_HEX[e.color]||ESTADO_HEX.gris;
+  const estCol=hx[0].replace('#','');
+  let body='';
+  body+=runP('Gilmedica S.A.S.',{bold:true,size:16,color:'002E6D'});
+  body+=runP((esRegistro?'Formato / Registro':'Documento')+' · Control documental · SGC ISO 9001',{size:9,color:'647082',spacing:140});
+  body+=runP((d.codigo||'(sin código)')+' · '+(d.nombre||'(sin nombre)'),{bold:true,size:15,spacing:60});
+  body+=runP('Versión '+(d.version||'1')+(d.fechaVigencia?' · Vigente desde '+d.fechaVigencia:'')+'     Estado: '+e.nombre,{bold:true,size:10,color:estCol,spacing:180});
+  // Identificación
+  body+=runP('IDENTIFICACIÓN',{bold:true,size:10,color:'13335C',spacing:80});
+  body+=tbl([
+    pairRow('Código',d.codigo,'Versión','v'+(d.version||'1')),
+    pairRow('Tipo de documento',cfgName('tiposDocumento',d.tipoDoc),'Origen',cfgName('origenes',d.origen)),
+    pairRow('Proceso',nombreProceso(d.proceso),'Subproceso',nombreSub(d.subproceso)),
+    pairRow('Clasificación',cfgName('clasificaciones',d.clasificacion),'Publicado',d.publicado?'Sí':'No')
+  ],[HALF,HALF]);
+  // Estado, vigencia y enlaces
+  body+=runP('ESTADO, VIGENCIA Y ENLACES',{bold:true,size:10,color:'13335C',spacing:80});
+  const filasEV=[pairRow('Estado',e.nombre,'Fecha de vigencia',d.fechaVigencia)];
+  [['Correo de solicitud',d.correoSolicitud],['Correo de divulgación',d.correoDivulgacion],['Correo de eliminación',d.correoEliminacion],['Documento original',d.link],['Documento publicado',d.linkPublicado]]
+    .forEach(([l,v])=>{if(v)filasEV.push(fullRow(l,v));});
+  body+=tbl(filasEV,[HALF,HALF]);
+  // Responsables
+  body+=runP('RESPONSABLES',{bold:true,size:10,color:'13335C',spacing:80});
+  body+=tbl([
+    pairRow('Responsable de elaborar',uName(d.responsableElaborar),'Responsable de revisar',uName(d.responsableRevisar)),
+    fullRow('Responsable de aprobar',uName(d.responsableAprobar))
+  ],[HALF,HALF]);
+  // Firmas
+  body+=runP('FIRMAS',{bold:true,size:10,color:'13335C',spacing:80});
+  body+=tbl([
+    row([hcell('Elaboró',3324),hcell('Revisó',3324),hcell('Aprobó',3324)]),
+    row([firmaCell(d.elaboro,3324),firmaCell(d.reviso,3324),firmaCell(d.aprobo,3324)])
+  ],[3324,3324,3324]);
+  // Control de registros (solo formatos)
+  if(esRegistro){
+    body+=runP('CONTROL DE REGISTROS (RETENCIÓN Y DISPOSICIÓN)',{bold:true,size:10,color:'13335C',spacing:80});
+    body+=tbl([
+      pairRow('Cargo resp. de diligenciar',d.cargoDiligenciar,'Cargo resp. de archivar',d.cargoArchivar),
+      pairRow('Lugar / dirección de archivo',d.lugarArchivo,'Recuperación',cfgName('recuperaciones',d.recuperacion)),
+      pairRow('Tiempo en archivo de gestión',d.tiempoGestion,'Disposición final',cfgName('disposiciones',d.disposicionFinal)),
+      fullRow('Tiempo en disposición final',d.tiempoDisposicion)
+    ],[HALF,HALF]);
+  }
+  // Control de cambios
+  body+=runP('CONTROL DE CAMBIOS',{bold:true,size:10,color:'13335C',spacing:80});
+  const cc=d.controlCambios||[];
+  const ccCols=[1300,1900,6772];
+  const ccRows=[row([hcell('Versión',1300),hcell('Fecha',1900),hcell('Descripción',6772)])];
+  if(cc.length)cc.forEach(c=>ccRows.push(row([cell(runP('v'+(c.version||''),{size:10}),{w:1300}),cell(runP(c.fecha||'',{size:10}),{w:1900}),cell(runP(c.descripcion||'',{size:10}),{w:6772})])));
+  else ccRows.push(row([cell(runP('Sin cambios registrados.',{size:10,color:'888888'}),{span:3,w:FULL})]));
+  body+=tbl(ccRows,ccCols);
+  body+=runP('Generado por ORBIT · Gestión Documental · '+(typeof fechaHoy==='function'?fechaHoy():''),{size:8,color:'8C96A3',spacing:200});
+  const documentXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'+
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'+
+    '<w:body>'+body+'<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>';
+  const contentTypes='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
+  const pkgRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDoc" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+  const docRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    media.map(m=>`<Relationship Id="rId${m.id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${m.id}.${m.ext}"/>`).join('')+'</Relationships>';
+  const zip=new JSZip();
+  zip.file('[Content_Types].xml',contentTypes);
+  zip.file('_rels/.rels',pkgRels);
+  zip.file('word/document.xml',documentXml);
+  zip.file('word/_rels/document.xml.rels',docRels);
+  media.forEach(m=>zip.file('word/media/image'+m.id+'.'+m.ext,m.bytes));
+  zip.generateAsync({type:'arraybuffer'}).then(buf=>{
+    descargarBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),'Ficha_'+String(d.codigo||'ficha').replace(/[^\w.-]+/g,'_')+'_v'+(d.version||'1')+'.docx');
+    toast('Ficha exportada a Word');
+    logEvent&&logEvent('Exportó ficha a Word',`${fichaCtx.tipo} ${d.codigo||''} v${d.version||''}`);
+  }).catch(e=>{console.error('zip',e);toast('No se pudo generar el Word.');});
 }
 
 function exportarFichaPrint(){
