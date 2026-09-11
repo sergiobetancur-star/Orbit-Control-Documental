@@ -315,7 +315,7 @@
         <select id="filterDocSubproceso" onchange="renderDocumentos()"><option value="">Todos los subprocesos</option></select>
       </div>
       <table>
-        <thead><tr><th>Código</th><th>Nombre del documento</th><th>Versión</th><th>Estado</th><th>Publicado</th><th style="text-align:right">Original</th></tr></thead>
+        <thead><tr><th>Código</th><th>Nombre del documento</th><th>Versión</th><th>Estado</th><th>Publicado</th><th style="text-align:center">Actualización</th><th style="text-align:right">Original</th></tr></thead>
         <tbody id="tbodyDoc"></tbody>
       </table>
     </div>
@@ -341,7 +341,7 @@
         <select id="filterRegSubproceso" onchange="renderRegistros()"><option value="">Todos los subprocesos</option></select>
       </div>
       <table>
-        <thead><tr><th>Código</th><th>Nombre del formato</th><th>Versión</th><th>Estado</th><th>Publicado</th><th style="text-align:right">Original</th></tr></thead>
+        <thead><tr><th>Código</th><th>Nombre del formato</th><th>Versión</th><th>Estado</th><th>Publicado</th><th style="text-align:center">Actualización</th><th style="text-align:right">Original</th></tr></thead>
         <tbody id="tbodyReg"></tbody>
       </table>
     </div>
@@ -488,6 +488,19 @@
         <h3>Tipos de disposición final</h3>
         <div class="body"><div class="chips" id="chips-disposiciones"></div>
           <div class="addrow"><input id="add-disposiciones" placeholder="Ej. Destrucción, Archivo muerto…"><button class="btn primary sm" onclick="addSimple('disposiciones')">Agregar</button></div></div>
+      </div>
+    </div>
+
+    <div class="dcard" style="margin-top:16px">
+      <h3>Control de tiempo de vigencia</h3>
+      <div class="body">
+        <p style="margin:0 0 12px;color:var(--muted);font-size:13px">Define cada cuántos años un documento o formato requiere actualización, y con cuántos días de anticipación avisar. El semáforo del listado maestro se calcula con estos valores y la fecha de vigencia: <span style="color:#16a34a;font-weight:700">verde</span> vigente, <span style="color:#eab308;font-weight:700">amarillo</span> próxima actualización, <span style="color:#dc2626;font-weight:700">rojo</span> vencido.</p>
+        <div class="grid2">
+          <div class="field"><label>Documentos (años)</label><input type="number" min="0" id="vigDoc" placeholder="Ej. 3"></div>
+          <div class="field"><label>Registros / formatos (años)</label><input type="number" min="0" id="vigReg" placeholder="Ej. 5"></div>
+        </div>
+        <div class="field" style="margin-top:10px;max-width:320px"><label>Aviso de próxima actualización (días antes del vencimiento)</label><input type="number" min="1" id="vigAviso" placeholder="Ej. 90"></div>
+        <div style="margin-top:12px"><button class="btn primary sm" onclick="guardarVigencia()">Guardar</button></div>
       </div>
     </div>
 
@@ -778,6 +791,9 @@ function migrate(){
   ['procesos','subprocesos','tiposDocumento','origenes','usuarios','perfiles','clasificaciones','recuperaciones','disposiciones','comites']
     .forEach(k=>db.config[k]=db.config[k]||[]);
   db.actas=db.actas||[];
+  if(db.config.vigenciaDocumentos==null)db.config.vigenciaDocumentos=0;
+  if(db.config.vigenciaRegistros==null)db.config.vigenciaRegistros=0;
+  if(db.config.vigenciaAvisoDias==null)db.config.vigenciaAvisoDias=90;
   // Migración: si existen subprocesos anidados en procesos, se aplanan a lista independiente
   db.config.procesos.forEach(p=>{
     if(p.subprocesos){p.subprocesos.forEach(s=>db.config.subprocesos.push({id:s.id,nombre:s.nombre}));delete p.subprocesos;}
@@ -1700,7 +1716,7 @@ function renderLista(tipo){
     return hit && eOk && pOk && sOk;
   });
   if(!rows.length){
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><div class="big">Sin ${tipo==='documento'?'documentos':'formatos'}</div>Usa el botón “Nuevo” para crear el primero.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><div class="big">Sin ${tipo==='documento'?'documentos':'formatos'}</div>Usa el botón “Nuevo” para crear el primero.</div></td></tr>`;
     return;
   }
   // Agrupar por tipo de documento y, dentro, por código (versión más reciente primero)
@@ -1710,7 +1726,7 @@ function renderLista(tipo){
   const tipoKeys=Object.keys(tipos).sort((a,b)=>{if(a===SINTIPO)return 1;if(b===SINTIPO)return -1;return a.localeCompare(b,'es');});
   let html='';
   tipoKeys.forEach(tk=>{
-    html+=`<tr class="tipo-row"><td colspan="6">${esc(tk)}<span class="grp-count">${tipos[tk].length}</span></td></tr>`;
+    html+=`<tr class="tipo-row"><td colspan="7">${esc(tk)}<span class="grp-count">${tipos[tk].length}</span></td></tr>`;
     const groups={};
     tipos[tk].forEach(d=>{const k=d.codigo||'(sin código)';(groups[k]=groups[k]||[]).push(d);});
     const keys=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
@@ -1719,7 +1735,7 @@ function renderLista(tipo){
       const multi=vers.length>1;
       if(multi){
         const latest=vers[0];
-        html+=`<tr class="group-row"><td colspan="6">
+        html+=`<tr class="group-row"><td colspan="7">
           <span class="codecell">${esc(k)}</span> · ${esc(latest.nombre||'(sin nombre)')}
           <span class="grp-count">${vers.length} versiones</span>
         </td></tr>`;
@@ -1731,6 +1747,7 @@ function renderLista(tipo){
           <td>v${esc(d.version||'1')}</td>
           <td>${badge(d.estado)}</td>
           <td>${d.publicado?'<span class="pub-yes">Sí</span>':'<span class="pub-no">No</span>'}</td>
+          <td style="text-align:center">${semaforoHTML(semaforoVigencia(d,tipo))}</td>
           <td style="text-align:right" onclick="event.stopPropagation()">
             ${d.link?`<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener">Abrir ↗</a>`:'<span class="pub-no" style="font-size:12px">sin link</span>'}
           </td>
@@ -1739,6 +1756,34 @@ function renderLista(tipo){
     });
   });
   tbody.innerHTML=html;
+}
+/* ---- Semáforo de tiempo de vigencia / actualización ---- */
+function anosVigencia(tipo){return Number(tipo==='registro'?db.config.vigenciaRegistros:db.config.vigenciaDocumentos)||0;}
+function parseFechaVig(s){
+  if(!s)return null;s=String(s).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+  m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(m)return new Date(+m[3],+m[2]-1,+m[1]);
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+function semaforoVigencia(d,tipo){
+  if(!['vigente','publicado'].includes(d.estado))return {color:'',label:'No aplica (documento no vigente)'};
+  const anos=anosVigencia(tipo);
+  if(!anos)return {color:'',label:'Sin tiempo de vigencia definido (configúralo en Datos maestros)'};
+  const fv=parseFechaVig(d.fechaVigencia);
+  if(!fv)return {color:'',label:'Sin fecha de vigencia registrada'};
+  const dl=new Date(fv);dl.setFullYear(dl.getFullYear()+anos);
+  const hoy=new Date();hoy.setHours(0,0,0,0);
+  const dias=Math.round((dl-hoy)/86400000);
+  const aviso=Math.max(1,Number(db.config.vigenciaAvisoDias)||90);
+  const venceStr=dl.toLocaleDateString('es-CO');
+  if(dias<0)return {color:'rojo',label:`Vencido: requería actualización el ${venceStr} (hace ${-dias} días)`};
+  if(dias<=aviso)return {color:'amarillo',label:`Próxima actualización: vence el ${venceStr} (en ${dias} días)`};
+  return {color:'verde',label:`Vigente: próxima actualización el ${venceStr} (en ${dias} días)`};
+}
+function semaforoHTML(s){
+  const map={verde:'#16a34a',amarillo:'#eab308',rojo:'#dc2626'};
+  if(!s.color)return `<span title="${esc(s.label)}" style="color:var(--muted-2);font-size:14px">—</span>`;
+  return `<span title="${esc(s.label)}" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:${map[s.color]};border:1px solid rgba(0,0,0,.12);vertical-align:middle"></span>`;
 }
 function renderDocumentos(){renderLista('documento');}
 function renderRegistros(){renderLista('registro');}
@@ -2791,7 +2836,7 @@ function enviarCorreoEmailJS(){
    ============================================================ */
 function renderDatos(){
   ['procesos','subprocesos','tiposDocumento','origenes','clasificaciones','recuperaciones','disposiciones'].forEach(renderChips);
-  renderEstados();renderUsuarios();renderPerfiles();renderComites();renderBackupInfo();renderMailStats();
+  renderEstados();renderUsuarios();renderPerfiles();renderComites();renderBackupInfo();renderMailStats();renderVigencia();
   const el=document.getElementById('mantStats');
   if(el)el.textContent=`Actualmente hay ${db.documentos.length} documento(s) y ${db.registros.length} formato(s) registrados.`;
 }
@@ -3103,6 +3148,19 @@ function rolLabel(r){return ({principal:'Principal',suplente:'Suplente',invitado
 function comiteParticipantes(c){return ((c&&c.participantes)||[]).map(p=>typeof p==='string'?{id:p,rol:'principal'}:{id:p.id,rol:p.rol||'principal'});}
 
 /* ---- Comités (Datos maestros) ---- */
+function renderVigencia(){
+  const dd=document.getElementById('vigDoc'), rr=document.getElementById('vigReg'), av=document.getElementById('vigAviso');
+  if(dd)dd.value=db.config.vigenciaDocumentos||'';
+  if(rr)rr.value=db.config.vigenciaRegistros||'';
+  if(av)av.value=db.config.vigenciaAvisoDias||'';
+}
+function guardarVigencia(){
+  db.config.vigenciaDocumentos=Math.max(0,parseInt((document.getElementById('vigDoc')||{}).value,10)||0);
+  db.config.vigenciaRegistros=Math.max(0,parseInt((document.getElementById('vigReg')||{}).value,10)||0);
+  db.config.vigenciaAvisoDias=Math.max(1,parseInt((document.getElementById('vigAviso')||{}).value,10)||90);
+  save();logEvent&&logEvent('Configuró tiempo de vigencia',`doc=${db.config.vigenciaDocumentos}a · reg=${db.config.vigenciaRegistros}a · aviso=${db.config.vigenciaAvisoDias}d`);
+  toast('Tiempo de vigencia guardado');renderDocumentos();renderRegistros();
+}
 function renderComites(){
   const cont=document.getElementById('datosComites');if(!cont)return;
   db.config.comites=db.config.comites||[];
